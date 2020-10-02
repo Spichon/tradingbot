@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class position:
+class position_wrapper:
     def __init__(self, asset, df, signals, percent):
         self.asset = asset
         self.df = df

@@ -9,6 +9,9 @@ class account_interface:
     def cancel_order(self, txid):
         pass
 
+    def get_ohlc(self, asset, ticker):
+        pass
+
     def get_query_orders(self):
         pass
 

@@ -17,12 +17,6 @@ class kraken_account_wrapper(account_interface):
                                                  'ordertype': ordertype,
                                                  'volume': volume})
 
-    def get_minimum_trade(self, pair):
-        assets = self.k.query_public('AssetPairs')
-        assets = assets['result']
-        relevant_pair = assets[pair]
-        return int(relevant_pair['ordermin']), int(relevant_pair['lot_decimals'])
-
     def cancel_order(self, txid):
         self.k.query_private('CancelOrder', {'txid': txid})
 
@@ -30,6 +24,7 @@ class kraken_account_wrapper(account_interface):
         self.k.query_private('QueryOrders')
 
     def get_balances(self):
+        print('who run the word')
         return self.k.query_private('Balance')['result']
 
     def get_open_orders(self):
@@ -41,8 +36,8 @@ class kraken_account_wrapper(account_interface):
     def get_open_positions(self):
         return self.k.query_private('OpenPositions')
 
-    def get_trade_balance(self, asset):
-        return self.k.query_private('TradeBalance', {'asset': asset})
+    def get_trade_balance(self):
+        return self.k.query_private('TradeBalance')
 
     def get_trade_volume(self):
         return self.k.query_private('TradeVolume')
@@ -52,3 +47,9 @@ class kraken_account_wrapper(account_interface):
 
     def get_trades_history(self):
         return self.k.query_private('TradesHistory')
+
+    def get_ledger_info(self, to_asset='', type='trade'):
+        if to_asset == '':
+            return self.k.query_private('Ledgers', {'type': type})
+        else:
+            return self.k.query_private('Ledgers', {'asset': to_asset, 'type': type})

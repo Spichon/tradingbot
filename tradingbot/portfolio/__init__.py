@@ -1,3 +1,1 @@
-class portfolio:
-    def __init__(self, account):
-        self.account = account
+from .portfolio import portfolio_manager
