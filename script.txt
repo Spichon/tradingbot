@@ -11,6 +11,7 @@ from tradingbot.strategy import ema_strategy
 from tradingbot.strategy import ichimoku_kinko_hyo_strategy
 from tradingbot.cotation import cotation_kraken
 from tradingbot.asset import asset_crypto
+import pandas as pd
 public_kraken = cotation_kraken()
 sma_strat = sma_strategy('SMA', 12, 24)
 ema_strat = ema_strategy('EMA', 12, 24)
@@ -19,8 +20,8 @@ XETHZ = asset_crypto(asset='ETH', cotation_place=public_kraken)
 XETHZ.add_strategy(sma_strat)
 XETHZ.add_strategy(ema_strat)
 XETHZ.add_strategy(ichimo_strat)
-XETHZ.get_asset_return(1440, optimize=True, rolling_optimization=True, from_directory="backtesting")
-
+returns = XETHZ.get_asset_return(1440, optimize=True, rolling_optimization=False, from_directory="backtesting")
+pf.tears.create_full_tear_sheet(pd.Series(returns))
 
 
 /// Manipulation d'un portefeuille avec un ensemble d'assets
@@ -33,10 +34,14 @@ from tradingbot.portfolio import portfolio_manager
 from tradingbot.account import kraken_account_wrapper
 import matplotlib.pyplot as plt
 import yaml
-
-kraken_acount = kraken_account_wrapper()
+import pyfolio as pf
+import os
+import pandas as pd
+os.environ['key'] = '++UMX5o2Y/wYNe6c5bh3RHkOhtsXQJgnWoKyKylfvLxH8EotobLKT5vP'
+os.environ['secret'] = 'KObDBcajmeCLRGHmPUf4qhd0nO4yGd/B9ii47esXPIdsXKgyxTeHMmdxF/QpzMeNfbST4oPkJhAcPJc5e5ZpWQ=='
+kraken_account = kraken_account_wrapper()
 public_kraken = cotation_kraken()
-my_portefolio = portfolio_manager(kraken_acount)
+my_portefolio = portfolio_manager(kraken_account)
 
 sma_strat = sma_strategy('SMA', 12, 24)
 ema_strat = ema_strategy('EMA', 12, 24)
@@ -44,7 +49,7 @@ ichimo_strat = ichimoku_kinko_hyo_strategy('ICHIMO')
 
 
 
-with open(r'config.yml') as file:
+with open(r'config_run.yml') as file:
     assets = yaml.load(file, Loader=yaml.FullLoader)['assets']
     for asset in assets:
         temp_asset = asset_crypto(asset=asset, cotation_place=public_kraken)
@@ -53,16 +58,8 @@ with open(r'config.yml') as file:
         temp_asset.add_strategy(ichimo_strat)
         my_portefolio.add_asset(temp_asset)
 
-my_portefolio.create_portfolio_report(1440, optimize=True, rolling_optimization=True, from_directory="backtesting")
-plt.show()
+assets_returns = my_portefolio.get_assets_return(60)
+weights = my_portefolio.get_weights(assets_returns.fillna(0))
+weights = pd.DataFrame(weights.reshape(1, -1), columns=[col.split('_')[0] for col in assets_returns.columns])
+weights = weights.T
 
-XETHZ = asset_crypto(asset='XETHZ', cotation_place=public_kraken)
-BAT = asset_crypto(asset='BAT', cotation_place=public_kraken)
-XETHZ.add_strategy(sma_strat)
-XETHZ.add_strategy(ema_strat)
-XETHZ.add_strategy(ichimo_strat)
-BAT.add_strategy(sma_strat)
-BAT.add_strategy(ema_strat)
-BAT.add_strategy(ichimo_strat)
-my_portefolio.add_asset(BAT)
-my_portefolio.add_asset(XETHZ)

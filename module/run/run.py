@@ -1,5 +1,4 @@
 from datetime import datetime
-import os
 
 from tradingbot.strategy import sma_strategy
 from tradingbot.strategy import ema_strategy
@@ -20,7 +19,7 @@ ichimo_strat = ichimoku_kinko_hyo_strategy('ICHIMO')
 kraken_account = kraken_account_wrapper()
 public_kraken = cotation_kraken()
 my_portefolio = portfolio_manager(kraken_account)
-with open(r'{}/{}.yml'.format("/Users/simon.a.pichon/Project/tradingbot/config.yml", 'config')) as stream:
+with open(r'{}/{}.yml'.format("/Users/simon.a.pichon/Project/tradingbot", 'config')) as stream:
     try:
         data = yaml.load(stream, Loader=yaml.FullLoader)
         for asset in data['assets']:
@@ -32,7 +31,7 @@ with open(r'{}/{}.yml'.format("/Users/simon.a.pichon/Project/tradingbot/config.y
     except yaml.YAMLError as exc:
         print(exc)
 scheduler = BlockingScheduler()
-ticker = 240
+ticker = 60
 
 def robot_trading():
     log_file = open("log.txt", "a")
@@ -41,9 +40,12 @@ def robot_trading():
     orders = kraken_account.get_open_orders()
     balances = kraken_account.get_balances()
     assets_returns = my_portefolio.get_assets_return(ticker)
-    weights = my_portefolio.get_weights(assets_returns.fillna(0))
-    weights = pd.DataFrame(weights.reshape(1, -1), columns=[col.split('_')[0] for col in assets_returns.columns])
-    weights = weights.T
+    print(assets_returns)
+    # weights = my_portefolio.get_weights(assets_returns.fillna(0))
+    # print(weights)
+    # weights = pd.DataFrame(weights.reshape(1, -1), columns=[col.split('_')[0] for col in assets_returns.columns])
+    # weights = weights.T
+    # print(weights)
 
     # relevant_asset = crypto_asset(asset=asset, ticker=ticker, k=kraken_account.get_api())
     # df = relevant_asset.get_OHLC()

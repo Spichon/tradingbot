@@ -33,9 +33,7 @@ class asset_interface:
             columns = ['time', 'open', 'high', 'low', 'close', 'vwap', 'volume', 'count']
             df = pd.DataFrame(datas, columns=columns)
             df = df.astype(float)
-            df['time'] = pd.to_datetime(df['time'], unit='s', utc=True)
-            df['time'] = df['time'].dt.tz_convert('Europe/Paris')
-            df['time'] = df['time'].dt.tz_localize(None)
+            df['time'] = pd.to_datetime(df['time'].astype(int), unit='s')
             df = df.set_index('time')
 
         else:
@@ -148,14 +146,14 @@ class asset_interface:
             df['position'] = df[[c for c in df if c.endswith('position')]].mul(weights).sum(1)
             df.loc[df.position < 0, "position"] = -1
             df.loc[df.position > 0, "position"] = 1
-        df['{}_returns'.format(self.__asset)] = df['close'].diff()
+        df['{}_returns'.format(self.__asset)] = df['close'].diff(2)
         df['{}_returns'.format(self.__asset)] = df['position'] * df[
             '{}_returns'.format(self.__asset)]
         df['{}_log_returns'.format(self.__asset)] = np.log(df['close']).diff()
         df['{}_log_returns'.format(self.__asset)] = df['position'] * df[
             '{}_log_returns'.format(self.__asset)]
         df['{}_log_returns'.format(self.__asset)] = df['{}_log_returns'.format(self.__asset)].fillna(0)
-        return df['{}_log_returns'.format(self.__asset)]
+        return df
 
     def __optimize(self, strategies_returns: pd.DataFrame = None) -> []:
         no_of_strategies = strategies_returns.shape[1]
@@ -170,13 +168,3 @@ class asset_interface:
         except SolverError:
             problem.solve(solver=SCS)
         return weights.value
-
-    def create_asset_report(self, ticker: int, strategies: [strategy_interface] = None,
-                            optimize: bool = True, rolling_optimization: bool = False, from_directory: str = None, df: pd.DataFrame = None):
-        if df is None:
-            if strategies is None:
-                strategies = self.strategies
-            asset_total_return = self.get_asset_return(ticker, strategies, optimize, rolling_optimization, from_directory)
-        else:
-            asset_total_return = df
-        pf.tears.create_full_tear_sheet(pd.Series(asset_total_return))

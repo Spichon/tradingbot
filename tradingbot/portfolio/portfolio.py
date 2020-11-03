@@ -118,7 +118,7 @@ class portfolio_manager:
         for asset in assets:
             dfs.append(
                 asset.get_asset_return(ticker, strategies, optimize, rolling_optimization, from_directory))
-        assets_returns = pd.concat(dfs, axis=1)
+        assets_returns = self.get_assets_return(ticker, assets, strategies, optimize, rolling_optimization, from_directory)
         if rolling_optimization:
             temp_df = self.roll(assets_returns, 720).apply(lambda x: self.get_weighted_mul(x, optimize, assets))
             assets_returns = assets_returns.join(temp_df)
