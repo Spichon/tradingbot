@@ -1,5 +1,7 @@
 from datetime import datetime
-
+import yaml
+from apscheduler.schedulers.blocking import BlockingScheduler
+import pandas as pd
 from tradingbot.strategy import sma_strategy
 from tradingbot.strategy import ema_strategy
 from tradingbot.strategy import ichimoku_kinko_hyo_strategy
@@ -7,11 +9,7 @@ from tradingbot.cotation import cotation_kraken
 from tradingbot.asset import asset_crypto
 from tradingbot.portfolio import portfolio_manager
 from tradingbot.account import kraken_account_wrapper
-import matplotlib.pyplot as plt
-import yaml
-import pyfolio as pf
-from apscheduler.schedulers.blocking import BlockingScheduler
-import pandas as pd
+import numpy as np
 
 sma_strat = sma_strategy('SMA', 12, 24)
 ema_strat = ema_strategy('EMA', 12, 24)
@@ -31,107 +29,45 @@ with open(r'{}/{}.yml'.format("/Users/simon.a.pichon/Project/tradingbot", 'confi
     except yaml.YAMLError as exc:
         print(exc)
 scheduler = BlockingScheduler()
-ticker = 60
+ticker = 240
+
 
 def robot_trading():
-    log_file = open("log.txt", "a")
+    log_file = open("/Users/simon.a.pichon/Project/tradingbot/log.txt", "a")
     now = datetime.now()
     current_time = now.strftime("%H:%M:%S")
     orders = kraken_account.get_open_orders()
-    balances = kraken_account.get_balances()
-    assets_returns = my_portefolio.get_assets_return(ticker)
-    print(assets_returns)
-    # weights = my_portefolio.get_weights(assets_returns.fillna(0))
-    # print(weights)
-    # weights = pd.DataFrame(weights.reshape(1, -1), columns=[col.split('_')[0] for col in assets_returns.columns])
-    # weights = weights.T
-    # print(weights)
-
-    # relevant_asset = crypto_asset(asset=asset, ticker=ticker, k=kraken_account.get_api())
-    # df = relevant_asset.get_OHLC()
-    # strategy = ema_strategy(name='ema_strategy', df=df, n1=12, n2=26)
-    # strategy.populate()
-    # signal = strategy.get_signal()
-    # if signal == 1:
-    #     log_file.write('{} - {} : Bullish signal from strategy {},\n'.format(
-    #         current_time,
-    #         asset,
-    #         strategy.name))
-    #     if (asset + 'EUR' in str(orders)) is False:
-    #         log_file.write('{} - {} : The asset is not present in any order,\n'.format(
-    #             current_time,
-    #             asset))
-    #         if ((asset in str(balances)) is False) or (float(balances[asset]) == 0):
-    #             log_file.write('{} - {} : The asset is not yet owned,\n'.format(
-    #                 current_time,
-    #                 asset))
-    #             available = float(balances['ZEUR']) * 0.30
-    #             ordermin, max_dec = kraken_account.get_minimum_trade(asset + 'EUR')
-    #             qte = round(available / df['close'].iloc[-1], max_dec)
-    #             if qte >= ordermin:
-    #                 result = kraken_account.add_order(pair=asset + 'EUR',
-    #                                                   type='buy',
-    #                                                   ordertype='market',
-    #                                                   volume=qte)
-    #                 if result['error'] == []:
-    #                     log_file.write('{} - {} : Asset purchase successful : {},\n'.format(
-    #                         current_time,
-    #                         asset,
-    #                         result['result']))
-    #                 else:
-    #                     log_file.write('{} - {} : Asset purchase failure : {},\n'.format(
-    #                         current_time,
-    #                         asset,
-    #                         result['error']))
-    #
-    #             else:
-    #                 log_file.write(
-    #                     '{} - {} : Asset purchase failure : Not enough volume : miss {},\n'.format(
-    #                         current_time,
-    #                         asset,
-    #                         ordermin - qte))
-    #         else:
-    #             log_file.write('{} - {} : The asset is already owned,\n'.format(
-    #                 current_time,
-    #                 asset))
-    #
-    # if signal == -1:
-    #     log_file.write('{} - {} : Bearish signal from strategy {},\n'.format(
-    #         current_time,
-    #         asset,
-    #         strategy.name))
-    #     if (asset + 'EUR' in str(orders)) is False:
-    #         log_file.write('{} - {} : The asset is not present in any order,\n'.format(
-    #             current_time,
-    #             asset))
-    #         if (asset in str(balances)) and (float(balances[asset]) > 0):
-    #             log_file.write('{} - {} : The asset is owned so can be sold,\n'.format(
-    #                 current_time,
-    #                 asset))
-    #             result = kraken_account.add_order(pair=asset + 'EUR',
-    #                                               type='sell',
-    #                                               ordertype='market',
-    #                                               volume=balances[asset]
-    #                                               )
-    #             if result['error'] == []:
-    #                 log_file.write('{} - {} : Asset sell successful : {},\n'.format(
-    #                     current_time,
-    #                     asset,
-    #                     result['result']))
-    #             else:
-    #                 log_file.write('{} - {} : Asset sell failure : {},\n'.format(
-    #                     current_time,
-    #                     asset,
-    #                     result['error']))
-    #
-    #         else:
-    #             log_file.write('{} - {} : The asset is not owned so cannot be sold,\n'.format(
-    #                 current_time,
-    #                 asset))
+    log_file.write('current_time: {}'.format(current_time))
+    wish = my_portefolio.get_wish_balance(ticker)
+    held = my_portefolio.get_held_balance()
+    state = pd.merge(wish, held, left_index=True, right_index=True, how="outer")
+    state['diff'] = np.subtract(wish, held)
+    my_portefolio.reset_orders()
+    state = state.join(orders)
+    for e in state['diff'].iteritems():
+        asset = e[0]
+        qty = e[1]
+        ordermin, max_dec = public_kraken.get_minimum_trade(asset + 'EUR')
+        ordermin = float(ordermin)
+        qty = round(qty, max_dec)
+        if qty < 0 and -qty > ordermin:
+            print("Sell asset : {}, qty : {}".format(asset, qty))
+            result = kraken_account.add_order(pair=asset + 'EUR',
+                                              type='sell',
+                                              ordertype='market',
+                                              volume=-qty)
+            print(result)
+        if qty > 0 and qty >= ordermin:
+            print("Buy asset : {}, qty : {}".format(asset, qty))
+            result = kraken_account.add_order(pair=asset + 'EUR',
+                                              type='buy',
+                                              ordertype='market',
+                                              volume=qty)
+            print(result)
     log_file.close()
 
-scheduler.add_job(robot_trading, 'interval', seconds=ticker)
+
+scheduler.add_job(robot_trading, 'interval', seconds=10)
 
 if __name__ == '__main__':
     scheduler.start()
-

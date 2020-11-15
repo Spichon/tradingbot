@@ -1,24 +1,12 @@
+from functools import reduce
 from cvxpy import SolverError, SCS
+import pandas as pd
+import numpy as np
+import cvxpy as cp
+from numpy.lib.stride_tricks import as_strided as stride
 
 from tradingbot.account import account_interface
 from tradingbot.asset import asset_interface
-# from tradingbot.position import position_wrapper
-import pandas as pd
-import pandas as pd
-import numpy as np
-import datetime
-import math
-from tabulate import tabulate
-import matplotlib.pyplot as plt
-import seaborn as sns
-import cvxopt as opt
-from cvxopt import blas, solvers
-import cvxpy as cp
-import pyfolio as pf
-
-from tradingbot.strategy import strategy_interface
-
-from numpy.lib.stride_tricks import as_strided as stride
 
 
 class portfolio_manager:
@@ -40,51 +28,75 @@ class portfolio_manager:
         """Remove an asset of the array of assets"""
         return self.assets.remove(asset)
 
-    def get_balances(self):
+    def get_account_balances(self):
         return self.__account.get_balances()
+
+    def get_trade_balances(self, currency="ZEUR"):
+        return self.__account.get_trade_balance(currency)
 
     def get_asset_balance(self, asset):
         balances = self.__account.get_balances()
         return float(balances[asset])
 
-    def get_asset_value(self, asset, ticker=1):
-        balances = self.__account.get_balances()
-        amount = float(balances[asset])
-        ohlc = self.__account.get_ohlc(asset=asset, ticker=ticker)
-        datas = ohlc[asset + 'EUR']
-        columns = ['time', 'open', 'high', 'low', 'close', 'vwap', 'volume', 'count']
-        df = pd.DataFrame(datas, columns=columns)
-        df = df.astype(float)
-        value = df.tail(1)['open']
-        return amount * value
+    def get_held_balance(self):
+        assets = pd.DataFrame(index=[o.get_asset() for o in self.assets])
+        balances = pd.DataFrame.from_dict(data=self.get_account_balances(), columns=["quantity_held"],
+                                          orient='index').astype(float)
+        dfs = pd.merge(assets, balances, left_index=True, right_index=True, how="left")
+        dfs = dfs.fillna(0)
+        return dfs
+
+    def get_wish_balance(self, ticker):
+        assets_returns = self.get_assets_return(ticker)
+        wish_percent = self.get_percent_wish(assets_returns)
+        last_values = self.get_assets_last_value()
+        trade_balance = self.get_trade_balances()
+        balance = float(trade_balance['eb']) - 5
+        wish_balance = wish_percent.mul(balance)['percent_wish']/last_values['last_value']
+        wish_balance = pd.DataFrame(wish_balance, columns=["wish_balance"])
+        return wish_balance
+
+    def get_assets_last_value(self, ticker=1):
+        dfs = []
+        for asset in self.assets:
+            temp_asset = pd.DataFrame(index=[asset.get_asset()], columns=['last_value'],
+                                      data=asset.get_last_value(ticker))
+            dfs.append(temp_asset)
+        return pd.concat(dfs)
 
     def get_open_orders(self):
-        return self.__account.get_open_orders()
+        assets = pd.DataFrame(index=[o.get_asset() for o in self.assets], columns=['open_orders'])
+        orders = self.__account.get_open_orders()
+        for asset in assets.index:
+            if asset in str(orders):
+                assets.loc[asset] = True
+            else:
+                assets.loc[asset] = False
+        return assets
 
-    def get_available_fund(self):
+    def reset_orders(self):
+        orders = self.__account.get_open_orders()
+        for order in orders.keys():
+            self.__account.cancel_order(order)
+
+    def get_equivalent_balance(self):
         balances = self.__account.get_balances()
         return float(balances['ZEUR'])
 
-    def get_weights(self, assets_returns: pd.DataFrame, optimize: bool = True):
-        if optimize:
-            weights = self.__optimize(assets_returns)
-        else:
-            weights = 1 / assets_returns.shape[1]
+    def get_weights(self, assets_return: pd.DataFrame):
+        weights = self.__optimize(assets_return)
         return weights
 
-    def get_assets_return(self, ticker: int, assets: [asset_interface] = None, strategies: [strategy_interface] = None,
-                          asset_optimization: bool = True,
-                          rolling_optimization: bool = True,
-                          from_directory: str = None) -> pd.DataFrame:
-        if assets is None:
-            assets = self.assets
+    def get_assets_return(self, ticker: int) -> pd.DataFrame:
         dfs = []
-        for asset in assets:
-            dfs.append(
-                asset.get_asset_return(ticker, strategies, asset_optimization, rolling_optimization, from_directory))
-        assets_returns = pd.concat(dfs, axis=1)
-        assets_returns = assets_returns.fillna(0)
-        return assets_returns
+        for asset in self.assets:
+            asset_OHLC = asset.get_OHLC(ticker)
+            asset_return = asset.get_asset_return(asset_OHLC)
+            dfs.append(asset_return)
+        dfs = reduce(lambda df1, df2: pd.merge(df1, df2, left_index=True, right_index=True), dfs)
+        dfs[[c for c in dfs if c.endswith('log_returns')]] = dfs[[c for c in dfs if c.endswith('log_returns')]].fillna(
+            0)
+        return dfs
 
     def roll(self, df, w, **kwargs):
         v = df.values
@@ -98,38 +110,30 @@ class portfolio_manager:
         })
         return rolled_df.groupby(level=0, **kwargs)
 
-    def get_weighted_mul(self, sub_df, optimize, assets):
-        weights = self.get_weights(sub_df.fillna(0), optimize)
-        names = []
-        for asset in assets:
-            names.append('{}_weights'.format(asset.get_asset()))
-        papa = sub_df.mul(weights).sum(1)
-        return pd.concat(
-            [pd.Series(weights, index=names), pd.Series(papa.iloc[-1], index=['portfolio_return'])], axis=0)
+    def get_percent_wish(self, assets_return):
+        weights = self.get_weights(assets_return[[c for c in assets_return if c.endswith('log_returns')]])
+        weights = weights
+        names = [asset.get_asset() for asset in self.assets]
+        return pd.DataFrame(weights, index=names, columns=['percent_wish'])
 
-    def get_portfolio_return(self, ticker: int, assets: [asset_interface] = None,
-                             strategies: [strategy_interface] = None,
-                             optimize: bool = True,
-                             rolling_optimization: bool = True,
-                             from_directory: str = None) -> pd.DataFrame:
-        if assets is None:
-            assets = self.assets
-        dfs = []
-        for asset in assets:
-            dfs.append(
-                asset.get_asset_return(ticker, strategies, optimize, rolling_optimization, from_directory))
-        assets_returns = self.get_assets_return(ticker, assets, strategies, optimize, rolling_optimization, from_directory)
-        if rolling_optimization:
-            temp_df = self.roll(assets_returns, 720).apply(lambda x: self.get_weighted_mul(x, optimize, assets))
-            assets_returns = assets_returns.join(temp_df)
-            assets_returns['portfolio_return'] = assets_returns['portfolio_return'].shift(periods=720)
-            assets_returns[[c for c in assets_returns if c.endswith('weights')]] = assets_returns[
-                [c for c in assets_returns if c.endswith('weights')]].shift(
-                periods=720)
-        else:
-            weights = self.get_weights(assets_returns.fillna(0), optimize)
-            assets_returns['portfolio_return'] = np.sum(weights * assets_returns, axis=1)
-        return assets_returns
+    def get_percent_held(self):
+        portfolio_balances = self.get_held_balance()
+        last_values = self.get_assets_last_value()
+        trade_balance = self.get_trade_balances()
+        dfs = pd.merge(portfolio_balances, last_values, left_index=True, right_index=True, how='outer')
+        dfs['hold*price'] = dfs['quantity_held'] * dfs['last_value']
+        balance = float(trade_balance['eb']) - 5
+        dfs['percent_held'] = (dfs['hold*price'] / balance)
+        return dfs['percent_held']
+
+    def get_portfolio_return(self, ticker: int) -> pd.DataFrame:
+        assets_return = self.get_assets_return(ticker)
+        # temp_df = self.roll(assets_returns, 720).apply(lambda x: self.get_percent_wish(x, optimize, assets))
+        weights = self.get_percent_wish(assets_return)
+        weights = weights.values.reshape((1, -1))
+        assets_return['portfolio_return'] = assets_return[[c for c in assets_return if c.endswith('log_returns')]].mul(
+            weights).sum(1)
+        return assets_return
 
     def __optimize(self, assets_returns: pd.DataFrame = None) -> []:
         no_of_stocks = assets_returns.shape[1]
@@ -144,12 +148,3 @@ class portfolio_manager:
         except SolverError:
             problem.solve(solver=SCS)
         return weights.value
-
-    def create_portfolio_report(self, ticker: int, assets: [asset_interface] = None,
-                                strategies: [strategy_interface] = None,
-                                optimize: bool = True,
-                                rolling_optimization: bool = True,
-                                from_directory: str = None) -> None:
-        portefolio_return = self.get_portfolio_return(ticker, assets, strategies, optimize, rolling_optimization,
-                                                      from_directory)['portfolio_return']
-        pf.tears.create_full_tear_sheet(pd.Series(portefolio_return))

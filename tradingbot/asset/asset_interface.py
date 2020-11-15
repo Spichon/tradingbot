@@ -25,26 +25,25 @@ class asset_interface:
     def get_asset(self) -> str:
         return self.__asset
 
-    def get_OHLC(self, ticker: int, from_directory: str = None) -> pd.DataFrame:
+    def get_OHLC(self, ticker: int) -> pd.DataFrame:
         """Return OHLC data for an asset"""
-        if from_directory is None:
-            ohlc = self.__cotation_place.get_ohlc(self.__asset, ticker)
-            datas = ohlc[self.__asset + 'EUR']
-            columns = ['time', 'open', 'high', 'low', 'close', 'vwap', 'volume', 'count']
-            df = pd.DataFrame(datas, columns=columns)
-            df = df.astype(float)
-            df['time'] = pd.to_datetime(df['time'].astype(int), unit='s')
-            df = df.set_index('time')
-
-        else:
-            df = pd.read_csv('{}/{}.csv'.format(from_directory, self.__asset + 'EUR'), parse_dates=True,
-                             names=["time", "price", "volume"])
-            df['time'] = pd.to_datetime(df['time'].astype(int), unit='s')
-            df = df.set_index('time')
-            df = df.resample('{}Min'.format(ticker)).agg({'price': 'ohlc', 'volume': 'sum'})
-            df = df.droplevel(0, axis=1)
+        ohlc = self.__cotation_place.get_ohlc(self.__asset, ticker)
+        datas = ohlc[self.__asset + 'EUR']
+        columns = ['time', 'open', 'high', 'low', 'close', 'vwap', 'volume', 'count']
+        df = pd.DataFrame(datas, columns=columns)
+        df = df.astype(float)
+        df['time'] = pd.to_datetime(df['time'].astype(int), unit='s')
+        df = df.set_index('time')
         df = df.fillna(method='ffill')
-        return df
+        return df[['open', 'high', 'low', 'close']]
+
+    def get_last_value(self, ticker: int) -> float:
+        """Return OHLC data for an asset"""
+        ohlc = self.__cotation_place.get_ohlc(self.__asset, ticker)
+        datas = ohlc[self.__asset + 'EUR']
+        value = float(list(datas)[-1][-4])
+        return value
+
 
     def add_strategy(self, strategy: strategy_interface) -> []:
         """Add a strategy into the array of strategies"""
@@ -54,52 +53,17 @@ class asset_interface:
         """Remove a strategy of the array of strategies"""
         return self.strategies.remove(strategy)
 
-    def calculate_indicators(self, ticker: int, strategies: [strategy_interface] = None,
-                             from_directory: str = None) -> pd.DataFrame:
-        if strategies is None:
-            strategies = self.strategies
-        df = self.get_OHLC(ticker=ticker, from_directory=from_directory)
+    def calculate_strategies_return(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy(deep=True)
+        strategies = self.strategies
         for strategy in strategies:
-            df = strategy.populate(df)
-            df = strategy.get_signals(df)
+            df = strategy.get_positions(df)
+            df = strategy.get_strategy_return(df)
+        df[[c for c in df if c.endswith('log_returns')]] = df[[c for c in df if c.endswith('log_returns')]].fillna(0)
         return df
 
-    # def draw_OHLC(self, ticker: int):
-    #     """Draw OHLC graph"""
-    #     style.use('ggplot')
-    #     df = self.get_OHLC(ticker)
-    #     df['time'] = df['time'].map(mdates.date2num)
-    #     ax1 = plt.subplot2grid((6, 1), (0, 0), rowspan=5, colspan=1)
-    #     ax2 = plt.subplot2grid((6, 1), (5, 0), rowspan=1, colspan=1, sharex=ax1)
-    #     candlestick_ohlc(ax1, df.values, width=0.01, colorup='green',
-    #                      colordown='red')
-    #     ax2.bar(df['time'], df['volume'], 0.015, color='k')
-    #     ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%Y'))
-    #     plt.show()
-    #     pass
-    #
-    # def draw_OHLC_with_strat_indicator(self, ticker: int, strategies: [strategy_interface] = None):
-    #     if strategies is None:
-    #         strategies = self.strategies
-    #     style.use('ggplot')
-    #     df = self.calculate_indicators(ticker)
-    #     df['time'] = df['time'].map(mdates.date2num)
-    #     ax1 = plt.subplot2grid((6, 1), (0, 0), rowspan=5, colspan=1)
-    #     ax2 = plt.subplot2grid((6, 1), (5, 0), rowspan=1, colspan=1, sharex=ax1)
-    #     candlestick_ohlc(ax1, df.values, width=0.01, colorup='green',
-    #                      colordown='red')
-    #     ax2.bar(df['time'], df['volume'], 0.015, color='k')
-    #     ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%Y'))
-    #     for strategy in strategies:
-    #         strategy.draw_indicator(df=df, ax=ax1)
-    #     plt.show()
-    #     pass
-
-    def get_weights(self, strategies_returns: pd.DataFrame, optimize: bool = True):
-        if optimize:
-            weights = self.__optimize(strategies_returns)
-        else:
-            weights = 1 / strategies_returns.shape[1]
+    def get_weights(self, strategies_return: pd.DataFrame):
+        weights = self.__optimize(strategies_return)
         return weights
 
     def roll(self, df, w, **kwargs):
@@ -117,48 +81,17 @@ class asset_interface:
         })
         return rolled_df.groupby(level=0, **kwargs)
 
-    def get_weighted_mul(self, sub_df, optimize, strategies):
-        weights = self.get_weights(sub_df[[c for c in sub_df if c.endswith('log_returns')]].fillna(0), optimize)
-        names = []
-        for strategy in strategies:
-            names.append('{}_weights'.format(strategy.name))
-        papa = sub_df[[c for c in sub_df if c.endswith('position')]].mul(weights).sum(1)
-        return pd.concat(
-            [pd.Series(weights, index=names), pd.Series(0 if papa.iloc[-1] < 0 else 1, index=['position'])], axis=0)
+    def get_weighted_mul(self, strategies_return):
+        weights = self.get_weights(strategies_return[[c for c in strategies_return if c.endswith('log_returns')]])
+        names = ['{}_weights'.format(strategy.name) for strategy in self.strategies]
+        weighted_position = strategies_return[[c for c in strategies_return if c.endswith('position')]].mul(
+            weights).sum(1)
+        return [weighted_position, pd.Series(weights, index=names)]
 
-    def get_asset_return(self, ticker: int, strategies: [strategy_interface] = None, optimize: bool = True,
-                         rolling_optimization: bool = True,
-                         from_directory: str = None):
-        if strategies is None:
-            strategies = self.strategies
-        df = self.calculate_indicators(ticker, strategies, from_directory)
-        for strategy in strategies:
-            df = strategy.get_strategy_return(df)
-        print("Crypto {} en cours d'optimisation".format(self.get_asset()))
-        if rolling_optimization:
-            temp_df = self.roll(df, 720).apply(lambda x: self.get_weighted_mul(x, optimize, strategies))
-            df = df.join(temp_df)
-            df['position'] = df['position'].shift(periods=720)
-            df[[c for c in df if c.endswith('weights')]] = df[[c for c in df if c.endswith('weights')]].shift(
-                periods=720)
-        else:
-            weights = self.get_weights(df[[c for c in df if c.endswith('log_returns')]].fillna(0), optimize)
-            df['position'] = df[[c for c in df if c.endswith('position')]].mul(weights).sum(1)
-            df.loc[df.position < 0, "position"] = -1
-            df.loc[df.position > 0, "position"] = 1
-        df['{}_returns'.format(self.__asset)] = df['close'].diff(2)
-        df['{}_returns'.format(self.__asset)] = df['position'] * df[
-            '{}_returns'.format(self.__asset)]
-        df['{}_log_returns'.format(self.__asset)] = np.log(df['close']).diff()
-        df['{}_log_returns'.format(self.__asset)] = df['position'] * df[
-            '{}_log_returns'.format(self.__asset)]
-        df['{}_log_returns'.format(self.__asset)] = df['{}_log_returns'.format(self.__asset)].fillna(0)
-        return df
-
-    def __optimize(self, strategies_returns: pd.DataFrame = None) -> []:
-        no_of_strategies = strategies_returns.shape[1]
+    def __optimize(self, strategies_return: pd.DataFrame = None) -> []:
+        no_of_strategies = strategies_return.shape[1]
         weights = cp.Variable(no_of_strategies)
-        asset_return = (np.array(strategies_returns) @ weights)
+        asset_return = (np.array(strategies_return) @ weights)
         final_asset_value = cp.sum(cp.log(1 + asset_return))
         objective = cp.Maximize(final_asset_value)
         constraints = [0.0 <= weights, cp.sum(weights) <= 1]
@@ -168,3 +101,16 @@ class asset_interface:
         except SolverError:
             problem.solve(solver=SCS)
         return weights.value
+
+    def get_asset_return(self, df: pd.DataFrame):
+        df = df.copy(deep=True)
+        df = self.calculate_strategies_return(df)
+        # temp_df = self.roll(df, 720).apply(lambda x: self.get_weighted_mul(x))
+        returns = self.get_weighted_mul(df)
+        positions = returns[0]
+        weights = returns[1]
+        df['{}_position'.format(self.__asset)] = positions
+        df['{}_log_returns'.format(self.__asset)] = np.log(df['close']).diff()
+        df['{}_log_returns'.format(self.__asset)] = df['{}_position'.format(self.__asset)] * df[
+            '{}_log_returns'.format(self.__asset)]
+        return df[['{}_log_returns'.format(self.__asset), '{}_position'.format(self.__asset)]]

@@ -49,7 +49,7 @@ ichimo_strat = ichimoku_kinko_hyo_strategy('ICHIMO')
 
 
 
-with open(r'config_run.yml') as file:
+with open(r'../../config.yml') as file:
     assets = yaml.load(file, Loader=yaml.FullLoader)['assets']
     for asset in assets:
         temp_asset = asset_crypto(asset=asset, cotation_place=public_kraken)

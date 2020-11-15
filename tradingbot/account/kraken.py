@@ -24,7 +24,6 @@ class kraken_account_wrapper(account_interface):
         self.k.query_private('QueryOrders')
 
     def get_balances(self):
-        print('who run the word')
         return self.k.query_private('Balance')['result']
 
     def get_open_orders(self):
@@ -36,8 +35,8 @@ class kraken_account_wrapper(account_interface):
     def get_open_positions(self):
         return self.k.query_private('OpenPositions')
 
-    def get_trade_balance(self):
-        return self.k.query_private('TradeBalance')
+    def get_trade_balance(self, asset='ZEUR'):
+        return self.k.query_private('TradeBalance', {'asset': asset})['result']
 
     def get_trade_volume(self):
         return self.k.query_private('TradeVolume')

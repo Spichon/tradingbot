@@ -17,12 +17,18 @@ class cotation_kraken(cotation_interface):
         """get ohlc for relative asset and ticker"""
         return self.k.query_public('OHLC', {'pair': asset + 'EUR', 'interval': ticker})['result']
 
-    def get_minimum_trade(self, pair) -> (int, int):
+    def get_minimum_trade(self, pair):
         """get minimum trade volume and value"""
         assets = self.k.query_public('AssetPairs')
         assets = assets['result']
         relevant_pair = assets[pair]
-        return int(relevant_pair['ordermin']), int(relevant_pair['lot_decimals'])
+        return relevant_pair['ordermin'], relevant_pair['lot_decimals']
+
+    def get_asset_info(self, asset):
+        """get minimum trade volume and value"""
+        assets = self.k.query_public('Assets', {'asset': asset})
+        assets = assets['result']
+        return assets
 
     def get_trade_history(self, pair, since, path: '' = None):
         api_end = "9999999999"
