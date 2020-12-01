@@ -7,9 +7,13 @@ class cotation_interface:
         pass
 
     def get_trade_history(self, pair, since, file) -> {}:
-        """get ohlc for relative asset and ticker"""
+        """get historical ohlc for relative asset and ticker"""
         pass
 
     def get_minimum_trade(self, pair) -> (int, int):
         """get minimum trade volume and value"""
+        pass
+
+    def get_available_assets(self) -> {} :
+        """get all assets available for trading"""
         pass

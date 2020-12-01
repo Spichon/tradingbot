@@ -7,6 +7,7 @@ import csv
 import time
 import datetime
 
+
 class cotation_kraken(cotation_interface):
     def __init__(self):
         key = os.getenv('key')
@@ -15,18 +16,17 @@ class cotation_kraken(cotation_interface):
 
     def get_ohlc(self, asset, ticker) -> {}:
         """get ohlc for relative asset and ticker"""
-        return self.k.query_public('OHLC', {'pair': asset + 'EUR', 'interval': ticker})['result']
-
-    def get_minimum_trade(self, pair):
-        """get minimum trade volume and value"""
-        assets = self.k.query_public('AssetPairs')
-        assets = assets['result']
-        relevant_pair = assets[pair]
-        return relevant_pair['ordermin'], relevant_pair['lot_decimals']
+        return self.k.query_public('OHLC', {'pair': asset, 'interval': ticker})['result']
 
     def get_asset_info(self, asset):
         """get minimum trade volume and value"""
         assets = self.k.query_public('Assets', {'asset': asset})
+        assets = assets['result']
+        return assets
+
+    def get_available_assets(self) -> {}:
+        """get minimum trade volume and value"""
+        assets = self.k.query_public('AssetPairs')
         assets = assets['result']
         return assets
 
